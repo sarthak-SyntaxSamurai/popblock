@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PopBlock Test Page</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0D0D1A;
+      color: #E8E8F0;
+      min-height: 100vh;
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 { font-size: 28px; margin-bottom: 8px; color: #C8C0FF; }
+    .sub { color: #6B6B8D; margin-bottom: 24px; font-size: 14px; }
+    .warn {
+      background: rgba(255,170,0,0.1);
+      border: 1px solid rgba(255,170,0,0.2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+      max-width: 600px;
+      font-size: 13px;
+      color: #FFAA00;
+      line-height: 1.6;
+    }
+    .check {
+      background: rgba(0,214,143,0.08);
+      border: 1px solid rgba(0,214,143,0.15);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+      max-width: 600px;
+      font-size: 13px;
+      color: #00D68F;
+      line-height: 1.6;
+    }
+    .check.fail { background: rgba(255,59,92,0.08); border-color: rgba(255,59,92,0.15); color: #FF3B5C; }
+    .tests {
+      display: flex; flex-direction: column; gap: 12px;
+      max-width: 600px; width: 100%;
+    }
+    .test-row {
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    button {
+      padding: 8px 16px; border: 1px solid rgba(108,92,231,0.3);
+      background: rgba(108,92,231,0.15); color: #C8C0FF;
+      border-radius: 6px; font-size: 13px; font-weight: 600;
+      cursor: pointer; white-space: nowrap; min-width: 150px;
+    }
+    button:hover { background: rgba(108,92,231,0.25); }
+    .desc { flex: 1; font-size: 13px; color: #A8A8C0; }
+    .result {
+      font-size: 12px; font-weight: 700; min-width: 90px;
+      text-align: center; padding: 4px 8px; border-radius: 4px;
+    }
+    .result.ok { color: #00D68F; background: rgba(0,214,143,0.1); }
+    .result.fail { color: #FF3B5C; background: rgba(255,59,92,0.1); }
+    .result.wait { color: #6B6B8D; }
+    #log {
+      margin-top: 24px; max-width: 600px; width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; padding: 16px;
+      font-family: monospace; font-size: 12px; color: #6B6B8D;
+      max-height: 200px; overflow-y: auto; line-height: 1.8;
+    }
+    .log-ok { color: #00D68F; }
+    .log-fail { color: #FF3B5C; }
+    .log-info { color: #C8C0FF; }
+  </style>
+</head>
+<body>
+
+  <h1>🛡️ PopBlock Test Page</h1>
+  <p class="sub">Open DevTools console (F12) to see [PopBlock] logs</p>
+
+  <div id="statusCheck" class="check">Checking if PopBlock is active...</div>
+
+  <div class="tests">
+    <div class="test-row">
+      <button id="t1">window.open()</button>
+      <span class="desc">Opens popup to example.com</span>
+      <span class="result wait" id="r1">—</span>
+    </div>
+    <div class="test-row">
+      <button id="t2">Popup + Features</button>
+      <span class="desc">Popup with width/height params</span>
+      <span class="result wait" id="r2">—</span>
+    </div>
+    <div class="test-row">
+      <button id="t3">Delayed Popup</button>
+      <span class="desc">window.open after 2s (no gesture)</span>
+      <span class="result wait" id="r3">—</span>
+    </div>
+    <div class="test-row">
+      <button id="t4">location.replace()</button>
+      <span class="desc">Cross-origin redirect via replace()</span>
+      <span class="result wait" id="r4">—</span>
+    </div>
+    <div class="test-row">
+      <button id="t5">location.assign()</button>
+      <span class="desc">Cross-origin redirect via assign()</span>
+      <span class="result wait" id="r5">—</span>
+    </div>
+    <div class="test-row">
+      <button id="t6">location.href =</button>
+      <span class="desc">Cross-origin redirect via href setter</span>
+      <span class="result wait" id="r6">—</span>
+    </div>
+  </div>
+
+  <div id="log">Ready — click a test button. Check console for [PopBlock] messages.</div>
+
+  <script>
+    var logEl = document.getElementById('log');
+    function addLog(msg, cls) {
+      var d = document.createElement('div');
+      d.className = cls || '';
+      d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+      logEl.prepend(d);
+    }
+    function setResult(id, blocked) {
+      var el = document.getElementById(id);
+      el.textContent = blocked ? '✅ BLOCKED' : '❌ NOT BLOCKED';
+      el.className = 'result ' + (blocked ? 'ok' : 'fail');
+    }
+
+    // Check if PopBlock is injected
+    setTimeout(function () {
+      var status = document.getElementById('statusCheck');
+      // The blocker logs to console — we can't detect it from page JS.
+      // But we CAN check if window.open has been overridden
+      var openStr = window.open.toString();
+      if (openStr.indexOf('_pbOrigOpen') !== -1 || openStr.indexOf('pbNotify') !== -1 || openStr.indexOf('_pbIsCrossOrigin') !== -1) {
+        status.textContent = '✅ PopBlock is ACTIVE — window.open has been overridden. Ready to test!';
+      } else {
+        status.textContent = '❌ PopBlock is NOT detected. Make sure the extension is loaded and reload this page.';
+        status.className = 'check fail';
+      }
+    }, 500);
+
+    // Test 1: window.open
+    document.getElementById('t1').addEventListener('click', function () {
+      addLog('Testing window.open("https://example.com")...', 'log-info');
+      var w = window.open('https://example.com', '_blank');
+      if (!w || w.closed) {
+        addLog('BLOCKED — returned fake/closed window', 'log-ok');
+        setResult('r1', true);
+      } else {
+        addLog('NOT BLOCKED — popup opened', 'log-fail');
+        setResult('r1', false);
+        try { w.close(); } catch(e) {}
+      }
+    });
+
+    // Test 2: popup with features
+    document.getElementById('t2').addEventListener('click', function () {
+      addLog('Testing window.open with features...', 'log-info');
+      var w = window.open('https://example.com', '_blank', 'width=400,height=300');
+      if (!w || w.closed) {
+        addLog('BLOCKED — featured popup blocked', 'log-ok');
+        setResult('r2', true);
+      } else {
+        addLog('NOT BLOCKED', 'log-fail');
+        setResult('r2', false);
+        try { w.close(); } catch(e) {}
+      }
+    });
+
+    // Test 3: delayed popup
+    document.getElementById('t3').addEventListener('click', function () {
+      addLog('Starting 2s timer...', 'log-info');
+      document.getElementById('r3').textContent = '⏳ 2s...';
+      setTimeout(function () {
+        var w = window.open('https://example.com/timed', '_blank');
+        if (!w || w.closed) {
+          addLog('BLOCKED — timed popup blocked', 'log-ok');
+          setResult('r3', true);
+        } else {
+          addLog('NOT BLOCKED', 'log-fail');
+          setResult('r3', false);
+          try { w.close(); } catch(e) {}
+        }
+      }, 2000);
+    });
+
+    // Test 4: location.replace
+    document.getElementById('t4').addEventListener('click', function () {
+      addLog('Testing location.replace("https://evil.example.com")...', 'log-info');
+      var before = location.href;
+      location.replace('https://evil.example.com');
+      setTimeout(function () {
+        addLog('Still here — redirect was BLOCKED!', 'log-ok');
+        setResult('r4', true);
+      }, 1000);
+    });
+
+    // Test 5: location.assign
+    document.getElementById('t5').addEventListener('click', function () {
+      addLog('Testing location.assign("https://evil.example.com")...', 'log-info');
+      var before = location.href;
+      location.assign('https://evil.example.com');
+      setTimeout(function () {
+        addLog('Still here — redirect was BLOCKED!', 'log-ok');
+        setResult('r5', true);
+      }, 1000);
+    });
+
+    // Test 6: location.href = (hardest to block)
+    document.getElementById('t6').addEventListener('click', function () {
+      addLog('Testing location.href = "https://evil.example.com"...', 'log-info');
+      addLog('NOTE: This uses Navigation API if available, or SW goBack() fallback', 'log-info');
+      var before = location.href;
+      location.href = 'https://evil.example.com';
+      // If we're still here after 2s, it was blocked by Navigation API
+      setTimeout(function () {
+        addLog('Still here — redirect was BLOCKED by Navigation API!', 'log-ok');
+        setResult('r6', true);
+      }, 2000);
+    });
+  </script>
+
+</body>
+</html>

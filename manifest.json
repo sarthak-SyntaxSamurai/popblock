@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "PopBlock — Popup & Redirect Blocker",
+  "version": "1.0.0",
+  "description": "Force-stops unwanted popups, pop-unders, and sneaky redirects before they hijack your browser.",
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "tabs",
+    "webNavigation",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/blocker.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "PopBlock — Popup & Redirect Blocker"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "popup_redirect_rules",
+        "enabled": true,
+        "path": "rules/rules.json"
+      }
+    ]
+  }
+}
