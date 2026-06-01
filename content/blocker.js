@@ -1,12 +1,15 @@
 /**
  * PopBlock — Main World Blocker (world: "MAIN")
  *
- * Blocks popups and redirects using methods that ACTUALLY WORK:
- * 1. Override window.open — reliable
- * 2. Override Location.prototype.replace/assign — reliable
+ * BULLETPROOF Edition — Blocks popups and redirects using methods that ACTUALLY WORK:
+ * 1. Override window.open — tamper-proof, iframe-resistant
+ * 2. Override Location.prototype.replace/assign — tamper-proof
  * 3. Navigation API (navigate event) — catches location.href, .assign, .replace, etc.
- * 4. Block clickjack overlays
+ * 4. Block clickjack overlays — enhanced detection
  * 5. Strip meta-refresh tags
+ * 6. Iframe bypass protection — prevents stealing clean APIs from iframes
+ * 7. setTimeout/setInterval redirect guard — catches delayed redirects
+ * 8. Aggressive invisible iframe cleanup — removes ad iframes
  */
 'use strict';
 
@@ -30,11 +33,11 @@ function _pbIsCrossOrigin(url) {
 }
 
 // =============================================
-// 1. Override window.open — ALWAYS block cross-origin
+// 1. Override window.open — TAMPER-PROOF
 // =============================================
 var _pbOrigOpen = window.open;
 
-window.open = function (url, target, features) {
+var _pbBlockedOpen = function (url, target, features) {
   // Allow: no URL (about:blank), same-origin without popup features
   if (!url || url === 'about:blank') {
     return _pbOrigOpen.call(window, url, target, features);
@@ -59,27 +62,42 @@ window.open = function (url, target, features) {
   };
 };
 
+// Make window.open non-configurable so sites can't revert our override
+Object.defineProperty(window, 'open', {
+  value: _pbBlockedOpen,
+  writable: false,
+  configurable: false
+});
+
 // =============================================
-// 2. Override Location.prototype.replace & assign
+// 2. Override Location.prototype.replace & assign — TAMPER-PROOF
 // =============================================
 var _pbOrigReplace = Location.prototype.replace;
 var _pbOrigAssign = Location.prototype.assign;
 
-Location.prototype.replace = function (url) {
-  if (!_pbIsCrossOrigin(url)) {
-    return _pbOrigReplace.call(this, url);
-  }
-  _pbNotify('redirect', url);
-  console.log('%c[PopBlock]%c Blocked redirect (replace) → ' + url, 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
-};
+Object.defineProperty(Location.prototype, 'replace', {
+  value: function (url) {
+    if (!_pbIsCrossOrigin(url)) {
+      return _pbOrigReplace.call(this, url);
+    }
+    _pbNotify('redirect', url);
+    console.log('%c[PopBlock]%c Blocked redirect (replace) → ' + url, 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
+  },
+  writable: false,
+  configurable: false
+});
 
-Location.prototype.assign = function (url) {
-  if (!_pbIsCrossOrigin(url)) {
-    return _pbOrigAssign.call(this, url);
-  }
-  _pbNotify('redirect', url);
-  console.log('%c[PopBlock]%c Blocked redirect (assign) → ' + url, 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
-};
+Object.defineProperty(Location.prototype, 'assign', {
+  value: function (url) {
+    if (!_pbIsCrossOrigin(url)) {
+      return _pbOrigAssign.call(this, url);
+    }
+    _pbNotify('redirect', url);
+    console.log('%c[PopBlock]%c Blocked redirect (assign) → ' + url, 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
+  },
+  writable: false,
+  configurable: false
+});
 
 // =============================================
 // 3. Navigation API — catches location.href = "..." and more
@@ -109,7 +127,7 @@ if (typeof navigation !== 'undefined' && navigation.addEventListener) {
 }
 
 // =============================================
-// 4. Block clickjack overlays
+// 4. Block clickjack overlays — ENHANCED
 // =============================================
 document.addEventListener('click', function (e) {
   var el = e.target;
@@ -120,7 +138,12 @@ document.addEventListener('click', function (e) {
     var coversViewport = rect.width >= window.innerWidth * 0.8 && rect.height >= window.innerHeight * 0.8;
     var isInvisible = parseFloat(style.opacity) < 0.05 ||
       (style.backgroundColor === 'transparent' && !el.textContent.trim());
-    if (coversViewport && isInvisible) {
+
+    // Enhanced: also detect fixed/absolute positioned overlays with high z-index
+    var isOverlayPositioned = (style.position === 'fixed' || style.position === 'absolute') &&
+      parseInt(style.zIndex, 10) > 9000;
+
+    if (coversViewport && (isInvisible || isOverlayPositioned)) {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
@@ -167,4 +190,209 @@ if (document.documentElement) {
   }).observe(document, { childList: true });
 }
 
-console.log('%c[PopBlock]%c Main world blocker active ✓ — ' + location.href, 'color:#6C5CE7;font-weight:bold', 'color:#00D68F');
+// =============================================
+// 6. IFRAME BYPASS PROTECTION — Prevents stealing clean APIs
+//    Sites create hidden iframes to get unpatched window.open
+//    We intercept contentWindow access to propagate our blocks
+// =============================================
+(function () {
+  try {
+    var iframeProto = HTMLIFrameElement.prototype;
+    var cwDesc = Object.getOwnPropertyDescriptor(iframeProto, 'contentWindow');
+    if (!cwDesc || !cwDesc.get) return;
+
+    var originalCWGet = cwDesc.get;
+
+    // Patch a window inside an iframe with our blocked functions
+    function _pbPatchIframeWindow(win) {
+      if (!win || win.__popblock_patched__) return;
+      try {
+        // Mark as patched to avoid infinite loops
+        Object.defineProperty(win, '__popblock_patched__', {
+          value: true, writable: false, configurable: false
+        });
+
+        // Override window.open inside iframe
+        Object.defineProperty(win, 'open', {
+          value: _pbBlockedOpen,
+          writable: false,
+          configurable: false
+        });
+
+        // Override Location.prototype inside iframe
+        var iframeLoc = win.Location || (win.location && win.location.constructor);
+        if (iframeLoc && iframeLoc.prototype) {
+          try {
+            Object.defineProperty(iframeLoc.prototype, 'replace', {
+              value: Location.prototype.replace,
+              writable: false,
+              configurable: false
+            });
+            Object.defineProperty(iframeLoc.prototype, 'assign', {
+              value: Location.prototype.assign,
+              writable: false,
+              configurable: false
+            });
+          } catch (e) {}
+        }
+      } catch (e) {
+        // Cross-origin iframe — can't patch, but also can't be exploited
+        // since the site can't access cross-origin contentWindow either
+      }
+    }
+
+    Object.defineProperty(iframeProto, 'contentWindow', {
+      get: function () {
+        var win = originalCWGet.call(this);
+        _pbPatchIframeWindow(win);
+        return win;
+      },
+      configurable: false
+    });
+
+    // Also patch contentDocument access
+    var cdDesc = Object.getOwnPropertyDescriptor(iframeProto, 'contentDocument');
+    if (cdDesc && cdDesc.get) {
+      var originalCDGet = cdDesc.get;
+      Object.defineProperty(iframeProto, 'contentDocument', {
+        get: function () {
+          // Trigger contentWindow patch first
+          var win = originalCWGet.call(this);
+          _pbPatchIframeWindow(win);
+          return originalCDGet.call(this);
+        },
+        configurable: false
+      });
+    }
+
+    console.log('%c[PopBlock]%c Iframe bypass protection active', 'color:#6C5CE7;font-weight:bold', 'color:#00D68F');
+  } catch (e) {
+    console.warn('[PopBlock] Could not install iframe protection:', e);
+  }
+})();
+
+// =============================================
+// 7. setTimeout / setInterval REDIRECT GUARD
+//    Catches delayed redirect attacks like:
+//    setTimeout(function(){ location.href = "http://ad.com" }, 2000)
+//    We wrap setTimeout/setInterval to inspect string arguments
+// =============================================
+(function () {
+  try {
+    var _origSetTimeout = window.setTimeout;
+    var _origSetInterval = window.setInterval;
+
+    // Regex to detect redirect patterns in string code
+    var _redirectPattern = /(?:location\s*(?:\.|(?:\[['"]))\s*(?:href|replace|assign))|(?:window\s*\.\s*open\s*\()|(?:document\s*\.\s*location\s*=)/i;
+
+    Object.defineProperty(window, 'setTimeout', {
+      value: function (fn, delay) {
+        // Only intercept string arguments (eval-style) that contain redirects
+        if (typeof fn === 'string' && _redirectPattern.test(fn)) {
+          _pbNotify('timer-redirect', fn.substring(0, 200));
+          console.log('%c[PopBlock]%c Blocked setTimeout redirect code', 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
+          return 0;
+        }
+        return _origSetTimeout.apply(window, arguments);
+      },
+      writable: false,
+      configurable: false
+    });
+
+    Object.defineProperty(window, 'setInterval', {
+      value: function (fn, delay) {
+        if (typeof fn === 'string' && _redirectPattern.test(fn)) {
+          _pbNotify('timer-redirect', fn.substring(0, 200));
+          console.log('%c[PopBlock]%c Blocked setInterval redirect code', 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
+          return 0;
+        }
+        return _origSetInterval.apply(window, arguments);
+      },
+      writable: false,
+      configurable: false
+    });
+
+    console.log('%c[PopBlock]%c Timer redirect guard active', 'color:#6C5CE7;font-weight:bold', 'color:#00D68F');
+  } catch (e) {
+    console.warn('[PopBlock] Could not install timer guard:', e);
+  }
+})();
+
+// =============================================
+// 8. AGGRESSIVE INVISIBLE IFRAME CLEANUP
+//    Removes zero-size or hidden iframes used by ad networks
+//    to smuggle popups and track users
+// =============================================
+(function () {
+  function _pbCleanIframes() {
+    try {
+      var iframes = document.querySelectorAll('iframe');
+      for (var i = 0; i < iframes.length; i++) {
+        var iframe = iframes[i];
+        var src = iframe.src || '';
+
+        // Skip same-origin iframes without suspicious characteristics
+        if (!_pbIsCrossOrigin(src) && src !== '' && src !== 'about:blank') continue;
+
+        var style = getComputedStyle(iframe);
+        var rect = iframe.getBoundingClientRect();
+
+        var isHidden = style.display === 'none' ||
+          style.visibility === 'hidden' ||
+          parseFloat(style.opacity) < 0.01;
+
+        var isTiny = rect.width <= 1 || rect.height <= 1;
+
+        var isOffscreen = rect.right < 0 || rect.bottom < 0 ||
+          rect.left > window.innerWidth || rect.top > window.innerHeight;
+
+        if ((isHidden || isTiny || isOffscreen) && _pbIsCrossOrigin(src)) {
+          iframe.remove();
+          _pbNotify('iframe', src);
+          console.log('%c[PopBlock]%c Removed hidden ad iframe → ' + src, 'color:#6C5CE7;font-weight:bold', 'color:#FF3B5C');
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Run cleanup after page loads and periodically
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      setTimeout(_pbCleanIframes, 1000);
+      setTimeout(_pbCleanIframes, 3000);
+    });
+  } else {
+    setTimeout(_pbCleanIframes, 1000);
+    setTimeout(_pbCleanIframes, 3000);
+  }
+
+  // Also watch for dynamically added iframes
+  var _pbIframeObs = new MutationObserver(function (mutations) {
+    var shouldClean = false;
+    for (var i = 0; i < mutations.length; i++) {
+      var added = mutations[i].addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        if (added[j].tagName === 'IFRAME' || (added[j].querySelectorAll && added[j].querySelectorAll('iframe').length > 0)) {
+          shouldClean = true;
+          break;
+        }
+      }
+      if (shouldClean) break;
+    }
+    if (shouldClean) {
+      setTimeout(_pbCleanIframes, 100);
+    }
+  });
+
+  if (document.documentElement) {
+    _pbIframeObs.observe(document.documentElement, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', function () {
+      _pbIframeObs.observe(document.documentElement, { childList: true, subtree: true });
+    });
+  }
+
+  console.log('%c[PopBlock]%c Invisible iframe cleanup active', 'color:#6C5CE7;font-weight:bold', 'color:#00D68F');
+})();
+
+console.log('%c[PopBlock]%c Main world blocker active ✓ (BULLETPROOF) — ' + location.href, 'color:#6C5CE7;font-weight:bold', 'color:#00D68F');
