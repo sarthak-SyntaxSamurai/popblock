@@ -194,6 +194,7 @@ if (document.documentElement) {
 // 6. IFRAME BYPASS PROTECTION — Prevents stealing clean APIs
 //    Sites create hidden iframes to get unpatched window.open
 //    We intercept contentWindow access to propagate our blocks
+//    Uses WeakSet to track patched windows (no cross-origin property access needed)
 // =============================================
 (function () {
   try {
@@ -203,15 +204,14 @@ if (document.documentElement) {
 
     var originalCWGet = cwDesc.get;
 
-    // Patch a window inside an iframe with our blocked functions
-    function _pbPatchIframeWindow(win) {
-      if (!win || win.__popblock_patched__) return;
-      try {
-        // Mark as patched to avoid infinite loops
-        Object.defineProperty(win, '__popblock_patched__', {
-          value: true, writable: false, configurable: false
-        });
+    // WeakSet tracks patched windows by reference — no property access on the
+    // window object is needed, so cross-origin windows never throw SecurityError
+    var _patchedWindows = new WeakSet();
 
+    function _pbPatchIframeWindow(win) {
+      if (!win || _patchedWindows.has(win)) return;
+      _patchedWindows.add(win);
+      try {
         // Override window.open inside iframe
         Object.defineProperty(win, 'open', {
           value: _pbBlockedOpen,
@@ -222,18 +222,16 @@ if (document.documentElement) {
         // Override Location.prototype inside iframe
         var iframeLoc = win.Location || (win.location && win.location.constructor);
         if (iframeLoc && iframeLoc.prototype) {
-          try {
-            Object.defineProperty(iframeLoc.prototype, 'replace', {
-              value: Location.prototype.replace,
-              writable: false,
-              configurable: false
-            });
-            Object.defineProperty(iframeLoc.prototype, 'assign', {
-              value: Location.prototype.assign,
-              writable: false,
-              configurable: false
-            });
-          } catch (e) {}
+          Object.defineProperty(iframeLoc.prototype, 'replace', {
+            value: Location.prototype.replace,
+            writable: false,
+            configurable: false
+          });
+          Object.defineProperty(iframeLoc.prototype, 'assign', {
+            value: Location.prototype.assign,
+            writable: false,
+            configurable: false
+          });
         }
       } catch (e) {
         // Cross-origin iframe — can't patch, but also can't be exploited
@@ -243,7 +241,8 @@ if (document.documentElement) {
 
     Object.defineProperty(iframeProto, 'contentWindow', {
       get: function () {
-        var win = originalCWGet.call(this);
+        var win;
+        try { win = originalCWGet.call(this); } catch (e) { return null; }
         _pbPatchIframeWindow(win);
         return win;
       },
@@ -256,10 +255,11 @@ if (document.documentElement) {
       var originalCDGet = cdDesc.get;
       Object.defineProperty(iframeProto, 'contentDocument', {
         get: function () {
-          // Trigger contentWindow patch first
-          var win = originalCWGet.call(this);
-          _pbPatchIframeWindow(win);
-          return originalCDGet.call(this);
+          try {
+            var win = originalCWGet.call(this);
+            _pbPatchIframeWindow(win);
+          } catch (e) {}
+          try { return originalCDGet.call(this); } catch (e) { return null; }
         },
         configurable: false
       });
