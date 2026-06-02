@@ -1,0 +1,22 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Chrome extension metadata (auto-generated)
+_metadata/
+
+# Build artifacts
+*.zip
+*.crx
+*.pem
+
+# Node (if added later)
+node_modules/
+package-lock.json
+
+# Test files
+test.html
