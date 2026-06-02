@@ -3,6 +3,12 @@
   "name": "PopBlock — Popup & Redirect Blocker",
   "version": "1.0.0",
   "description": "Force-stops unwanted popups, pop-unders, and sneaky redirects before they hijack your browser.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "popblock@sarthak-syntaxsamurai",
+      "strict_min_version": "128.0"
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
